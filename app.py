@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from paypal import create_paypal_order
+from paypal import create_paypal_order, capture_paypal_order
 
 
 app = FastAPI(
@@ -79,4 +79,21 @@ def create_order(request: PaymentRequest):
         raise HTTPException(
             status_code=500,
             detail=f"PayPal order creation failed: {str(error)}"
+        )
+
+@app.post("/paypal/capture-order/{order_id}")
+def capture_order(order_id: str):
+    try:
+        result = capture_paypal_order(order_id)
+
+        return {
+            "status": "success",
+            "message": "PayPal Sandbox order captured.",
+            "order": result
+        }
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PayPal order capture failed: {str(error)}"
         )
