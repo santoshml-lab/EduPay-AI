@@ -63,7 +63,12 @@ def create_paypal_order(
                     "value": amount
                 }
             }
-        ]
+        ],
+        "application_context": {
+            "brand_name": "EduPay AI",
+            "return_url": "https://example.com/paypal/success",
+            "cancel_url": "https://example.com/paypal/cancel"
+        }
     }
 
     response = requests.post(
@@ -77,9 +82,9 @@ def create_paypal_order(
     )
 
     response.raise_for_status()
-    
 
     return response.json()
+
 
 def capture_paypal_order(order_id: str):
     """
