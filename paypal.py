@@ -77,5 +77,31 @@ def create_paypal_order(
     )
 
     response.raise_for_status()
+    
+
+    return response.json()
+
+def capture_paypal_order(order_id: str):
+    """
+    Capture an approved PayPal Sandbox order.
+    """
+
+    base_url = os.getenv(
+        "PAYPAL_BASE_URL",
+        "https://api-m.sandbox.paypal.com"
+    )
+
+    access_token = get_paypal_access_token()
+
+    response = requests.post(
+        f"{base_url}/v2/checkout/orders/{order_id}/capture",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}"
+        },
+        timeout=30
+    )
+
+    response.raise_for_status()
 
     return response.json()
