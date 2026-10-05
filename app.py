@@ -48,6 +48,7 @@ def health():
 def paypal_config():
     client_id = os.getenv("PAYPAL_CLIENT_ID")
     client_secret = os.getenv("PAYPAL_CLIENT_SECRET")
+
     base_url = os.getenv(
         "PAYPAL_BASE_URL",
         "https://api-m.sandbox.paypal.com"
@@ -81,6 +82,7 @@ def create_order(request: PaymentRequest):
             detail=f"PayPal order creation failed: {str(error)}"
         )
 
+
 @app.post("/paypal/capture-order/{order_id}")
 def capture_order(order_id: str):
     try:
@@ -97,6 +99,7 @@ def capture_order(order_id: str):
             status_code=500,
             detail=f"PayPal order capture failed: {str(error)}"
         )
+
 
 @app.get("/paypal/order/{order_id}")
 def get_order(order_id: str):
@@ -134,3 +137,22 @@ def get_order(order_id: str):
             status_code=500,
             detail=f"PayPal order lookup failed: {str(error)}"
         )
+
+
+@app.get("/paypal/success")
+def paypal_success(token: str | None = None):
+    return {
+        "status": "success",
+        "message": "PayPal Sandbox checkout completed successfully.",
+        "order_id": token,
+        "next_step": "Capture the approved PayPal order."
+    }
+
+
+@app.get("/paypal/cancel")
+def paypal_cancel(token: str | None = None):
+    return {
+        "status": "cancelled",
+        "message": "PayPal Sandbox checkout was cancelled.",
+        "order_id": token
+    }
