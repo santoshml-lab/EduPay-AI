@@ -9,6 +9,7 @@ def get_paypal_access_token():
 
     client_id = os.getenv("PAYPAL_CLIENT_ID")
     client_secret = os.getenv("PAYPAL_CLIENT_SECRET")
+
     base_url = os.getenv(
         "PAYPAL_BASE_URL",
         "https://api-m.sandbox.paypal.com"
@@ -32,7 +33,11 @@ def get_paypal_access_token():
         timeout=30
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(
+            f"PayPal OAuth error {response.status_code}: "
+            f"{response.text}"
+        )
 
     return response.json()["access_token"]
 
@@ -81,7 +86,11 @@ def create_paypal_order(
         timeout=30
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(
+            f"PayPal API error {response.status_code}: "
+            f"{response.text}"
+        )
 
     return response.json()
 
@@ -107,6 +116,10 @@ def capture_paypal_order(order_id: str):
         timeout=30
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(
+            f"PayPal capture error {response.status_code}: "
+            f"{response.text}"
+        )
 
     return response.json()
