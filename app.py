@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from ai import ask_ai
+from ai import ask_ai, create_payment_plan
 
 from paypal import create_paypal_order, capture_paypal_order
 
@@ -63,6 +63,23 @@ def ai_chat(request: AIRequest):
         raise HTTPException(
             status_code=500,
             detail=f"AI request failed: {str(error)}"
+        )
+
+@app.post("/ai/payment-plan")
+def ai_payment_plan(request: AIRequest):
+    try:
+        plan = create_payment_plan(request.message)
+
+        return {
+            "status": "success",
+            "message": request.message,
+            "payment_plan": plan
+        }
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI payment plan failed: {str(error)}"
         )
 
 
@@ -178,3 +195,5 @@ def paypal_cancel(token: str | None = None):
         "message": "PayPal Sandbox checkout was cancelled.",
         "order_id": token
     }
+
+
