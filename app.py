@@ -97,3 +97,40 @@ def capture_order(order_id: str):
             status_code=500,
             detail=f"PayPal order capture failed: {str(error)}"
         )
+
+@app.get("/paypal/order/{order_id}")
+def get_order(order_id: str):
+    try:
+        import requests
+
+        from paypal import get_paypal_access_token
+
+        base_url = os.getenv(
+            "PAYPAL_BASE_URL",
+            "https://api-m.sandbox.paypal.com"
+        )
+
+        access_token = get_paypal_access_token()
+
+        response = requests.get(
+            f"{base_url}/v2/checkout/orders/{order_id}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            timeout=30
+        )
+
+        if not response.ok:
+            raise RuntimeError(response.text)
+
+        return {
+            "status": "success",
+            "order": response.json()
+        }
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PayPal order lookup failed: {str(error)}"
+        )
