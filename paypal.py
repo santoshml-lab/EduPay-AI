@@ -71,7 +71,7 @@ def create_paypal_order(
         ],
         "application_context": {
             "brand_name": "EduPay AI",
-            "return_url": "return_url": "https://edupay-ai-frontend.santoshkrsbg36.workers.dev/",
+            "return_url": "https://edupay-ai-frontend.santoshkrsbg36.workers.dev/",
             "cancel_url": "https://edupay-ai.onrender.com/paypal/cancel"
         }
     }
