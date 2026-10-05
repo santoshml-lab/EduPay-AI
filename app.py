@@ -3,6 +3,7 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from ai import ask_ai
 
 from paypal import create_paypal_order, capture_paypal_order
 
@@ -42,6 +43,27 @@ def health():
     return {
         "status": "healthy"
     }
+
+class AIRequest(BaseModel):
+    message: str = Field(min_length=1)
+
+
+@app.post("/ai/chat")
+def ai_chat(request: AIRequest):
+    try:
+        answer = ask_ai(request.message)
+
+        return {
+            "status": "success",
+            "message": request.message,
+            "answer": answer
+        }
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI request failed: {str(error)}"
+        )
 
 
 @app.get("/paypal-config")
