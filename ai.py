@@ -68,10 +68,9 @@ def ask_ai(message: str):
 
     return response.choices[0].message.content
 
-
 def create_payment_plan(message: str):
     """
-    Extract structured payment-plan information from a user request.
+    Generate and validate a structured payment plan.
     """
 
     client = get_groq_client()
@@ -82,29 +81,16 @@ def create_payment_plan(message: str):
             {
                 "role": "system",
                 "content": (
-                    "Extract a payment plan from the user's message. "
-
-                    "Return ONLY valid JSON. "
-                    "Do not use Markdown. "
-                    "Do not add explanations. "
-
-                    "The JSON must contain exactly these fields: "
-                    "total_amount, installments, installment_amount, "
-                    "currency. "
-
-                    "total_amount must be a number. "
-                    "installments must be an integer. "
+                    "Extract a payment plan from the user message. "
+                    "Return a JSON object only. "
+                    "Required fields: total_amount, installments, "
+                    "installment_amount, currency. "
+                    "total_amount must be a positive number. "
+                    "installments must be a positive integer. "
                     "installment_amount must be a number. "
                     "currency must be a three-letter currency code. "
-
-                    "If the user does not provide a number of "
-                    "installments, use 1. "
-
-                    "Never invent discounts, fees, interest, or "
-                    "other charges. "
-
-                    "Calculate installment_amount as "
-                    "total_amount divided by installments."
+                    "Use 1 installment if none is specified. "
+                    "Never invent fees, discounts or interest."
                 )
             },
             {
@@ -113,29 +99,85 @@ def create_payment_plan(message: str):
             }
         ],
         temperature=0,
-        max_tokens=200
+        max_tokens=300,
+        response_format={"type": "json_object"}
     )
 
-    content = response.choices[0].message.content.strip()
+    choice = response.choices[0]
+    content = choice.message.content
+
+    # Detect empty or missing AI output
+    if not content or not content.strip():
+        raise RuntimeError(
+            "AI returned an empty response. Please try again."
+        )
 
     try:
         plan = json.loads(content)
-    except json.JSONDecodeError as error:
+    except json.JSONDecodeError:
         raise RuntimeError(
-            f"AI returned invalid payment-plan JSON: {error}"
+            "AI returned invalid JSON. Please try again."
         )
 
-    required_fields = [
+    if not isinstance(plan, dict):
+        raise RuntimeError(
+            "AI response must be a JSON object."
+        )
+
+    required_fields = {
         "total_amount",
         "installments",
         "installment_amount",
         "currency"
-    ]
+    }
 
-    for field in required_fields:
-        if field not in plan:
-            raise RuntimeError(
-                f"AI payment plan is missing field: {field}"
-            )
+    missing = required_fields - set(plan.keys())
+
+    if missing:
+        raise RuntimeError(
+            "AI payment plan is missing required fields."
+        )
+
+    # Validate numeric fields
+    try:
+        total = float(plan["total_amount"])
+        count = plan["installments"]
+        installment_amount = float(plan["installment_amount"])
+    except (TypeError, ValueError):
+        raise RuntimeError(
+            "AI returned invalid payment amounts."
+        )
+
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise RuntimeError(
+            "Installments must be a positive whole number."
+        )
+
+    if total <= 0 or installment_amount <= 0:
+        raise RuntimeError(
+            "Payment amounts must be greater than zero."
+        )
+
+    currency = plan["currency"]
+
+    if (
+        not isinstance(currency, str)
+        or len(currency) != 3
+        or not currency.isalpha()
+    ):
+        raise RuntimeError(
+            "AI returned an invalid currency code."
+        )
+
+    # Do not trust the AI for arithmetic.
+    # Recalculate the displayed installment amount server-side.
+    plan["total_amount"] = round(total, 2)
+    plan["installment_amount"] = round(total / count, 2)
+    plan["currency"] = currency.upper()
 
     return plan
+
+
+
+    
+    
