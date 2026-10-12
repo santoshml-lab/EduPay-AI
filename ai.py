@@ -69,112 +69,125 @@ def ask_ai(message: str):
 
     return response.choices[0].message.content
 
-
-def create_payment_plan(message: str):
-    """Generate a validated payment plan with exact cent amounts."""
-
+def create_payment_plan(message):
     client = get_groq_client()
 
     response = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
+        model="llama-3.3-70b-versatile",
+        temperature=0,
+        max_tokens=1000,
+        response_format={"type": "json_object"},
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "Extract a payment plan from the user's message. "
-                    "Return only a JSON object with total_amount, "
-                    "installments, installment_amount and currency. "
-                    "total_amount must be a positive number. "
-                    "installments must be a positive integer. "
-                    "Use 1 installment if not specified. "
-                    "currency must be a three-letter currency code. "
-                    "Never invent fees, discounts or interest."
-                )
+                "content": """
+You create simple payment plans.
+
+Return one valid JSON object only.
+Do not use Markdown or code fences.
+Always include these exact fields:
+- total_amount: number
+- installments: integer
+- installment_amount: number
+- currency: three-letter currency code
+- installment_schedule: array of objects containing
+  number and amount
+
+Example of the required JSON structure:
+{
+  "total_amount": 250.00,
+  "installments": 3,
+  "installment_amount": 83.33,
+  "currency": "USD",
+  "installment_schedule": [
+    {"number": 1, "amount": 83.33},
+    {"number": 2, "amount": 83.33},
+    {"number": 3, "amount": 83.34}
+  ]
+}
+
+The schedule must add up exactly to total_amount.
+Do not add fees or interest.
+Use the amount, currency and installment count requested
+by the user.
+"""
             },
-            {"role": "user", "content": message}
-        ],
-        temperature=0,
-        max_tokens=300,
-        response_format={"type": "json_object"}
+            {
+                "role": "user",
+                "content": message
+            }
+        ]
     )
 
     content = response.choices[0].message.content
 
     if not content or not content.strip():
-        raise RuntimeError("AI returned an empty response.")
+        raise ValueError("AI returned an empty payment plan.")
 
     try:
         plan = json.loads(content)
-    except json.JSONDecodeError:
-        raise RuntimeError("AI returned invalid JSON.")
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"AI returned invalid JSON: {content[:300]}"
+        ) from exc
 
-    if not isinstance(plan, dict):
-        raise RuntimeError("AI response must be a JSON object.")
+    required = [
+        "total_amount",
+        "installments",
+        "installment_amount",
+        "currency",
+        "installment_schedule",
+    ]
 
-    required = {
-        "total_amount", "installments",
-        "installment_amount", "currency"
-    }
-
-    if not required.issubset(plan):
-        raise RuntimeError("AI payment plan is missing required fields.")
-
-    try:
-        total = Decimal(str(plan["total_amount"])).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
-        count = plan["installments"]
-    except (InvalidOperation, ValueError, TypeError):
-        raise RuntimeError("AI returned invalid payment amounts.")
-
-    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-        raise RuntimeError("Installments must be a positive whole number.")
-
-    if total <= 0:
-        raise RuntimeError("Total amount must be greater than zero.")
-
-    currency = plan["currency"]
+    for field in required:
+        if field not in plan:
+            raise ValueError(f"Payment plan is missing: {field}")
 
     if (
-        not isinstance(currency, str)
-        or len(currency) != 3
-        or not currency.isalpha()
+        not isinstance(plan["installments"], int)
+        or plan["installments"] < 1
     ):
-        raise RuntimeError("AI returned an invalid currency code.")
+        raise ValueError("Installment count must be a positive integer.")
 
-    # Work in cents to avoid floating-point rounding errors.
-    total_cents = int(total * 100)
+    schedule = plan["installment_schedule"]
 
-    if count > total_cents:
-        raise RuntimeError(
-            "Too many installments for the requested amount."
-        )
+    if not isinstance(schedule, list):
+        raise ValueError("Installment schedule must be a list.")
 
-    base_cents, remainder = divmod(total_cents, count)
+    if len(schedule) != plan["installments"]:
+        raise ValueError("Installment count does not match the schedule.")
 
-    schedule = []
+    try:
+        total_cents = round(float(plan["total_amount"]) * 100)
+        amounts = [
+            round(float(item["amount"]) * 100)
+            for item in schedule
+        ]
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValueError("Payment plan contains invalid amounts.") from exc
 
-    for index in range(count):
-        cents = base_cents
+    if total_cents <= 0 or any(amount <= 0 for amount in amounts):
+        raise ValueError("All payment amounts must be positive.")
 
-        # Add remaining cents to the final installments.
-        if index >= count - remainder:
-            cents += 1
+    if sum(amounts) != total_cents:
+        raise ValueError("Installments do not add up to the total.")
 
-        schedule.append({
-            "number": index + 1,
-            "amount": f"{cents // 100}.{cents % 100:02d}"
-        })
+    plan["installment_schedule"] = [
+        {"number": i + 1, "amount": amount / 100}
+        for i, amount in enumerate(amounts)
+    ]
 
-    plan["total_amount"] = f"{total_cents // 100}.{total_cents % 100:02d}"
-    plan["installments"] = count
-    plan["installment_schedule"] = schedule
-
-    # Keep compatibility with the existing frontend.
-    plan["installment_amount"] = schedule[0]["amount"]
-    plan["currency"] = currency.upper()
+    plan["total_amount"] = total_cents / 100
+    plan["installment_amount"] = amounts[0] / 100
+    plan["currency"] = str(plan["currency"]).upper()
 
     return plan
+
+
+
+    
+
+    
 
 
 
