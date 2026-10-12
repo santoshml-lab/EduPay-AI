@@ -2,6 +2,7 @@ import os
 import json
 
 from groq import Groq
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
 def get_groq_client():
@@ -68,10 +69,9 @@ def ask_ai(message: str):
 
     return response.choices[0].message.content
 
+
 def create_payment_plan(message: str):
-    """
-    Generate and validate a structured payment plan.
-    """
+    """Generate a validated payment plan with exact cent amounts."""
 
     client = get_groq_client()
 
@@ -81,82 +81,57 @@ def create_payment_plan(message: str):
             {
                 "role": "system",
                 "content": (
-                    "Extract a payment plan from the user message. "
-                    "Return a JSON object only. "
-                    "Required fields: total_amount, installments, "
-                    "installment_amount, currency. "
+                    "Extract a payment plan from the user's message. "
+                    "Return only a JSON object with total_amount, "
+                    "installments, installment_amount and currency. "
                     "total_amount must be a positive number. "
                     "installments must be a positive integer. "
-                    "installment_amount must be a number. "
+                    "Use 1 installment if not specified. "
                     "currency must be a three-letter currency code. "
-                    "Use 1 installment if none is specified. "
                     "Never invent fees, discounts or interest."
                 )
             },
-            {
-                "role": "user",
-                "content": message
-            }
+            {"role": "user", "content": message}
         ],
         temperature=0,
         max_tokens=300,
         response_format={"type": "json_object"}
     )
 
-    choice = response.choices[0]
-    content = choice.message.content
+    content = response.choices[0].message.content
 
-    # Detect empty or missing AI output
     if not content or not content.strip():
-        raise RuntimeError(
-            "AI returned an empty response. Please try again."
-        )
+        raise RuntimeError("AI returned an empty response.")
 
     try:
         plan = json.loads(content)
     except json.JSONDecodeError:
-        raise RuntimeError(
-            "AI returned invalid JSON. Please try again."
-        )
+        raise RuntimeError("AI returned invalid JSON.")
 
     if not isinstance(plan, dict):
-        raise RuntimeError(
-            "AI response must be a JSON object."
-        )
+        raise RuntimeError("AI response must be a JSON object.")
 
-    required_fields = {
-        "total_amount",
-        "installments",
-        "installment_amount",
-        "currency"
+    required = {
+        "total_amount", "installments",
+        "installment_amount", "currency"
     }
 
-    missing = required_fields - set(plan.keys())
+    if not required.issubset(plan):
+        raise RuntimeError("AI payment plan is missing required fields.")
 
-    if missing:
-        raise RuntimeError(
-            "AI payment plan is missing required fields."
-        )
-
-    # Validate numeric fields
     try:
-        total = float(plan["total_amount"])
-        count = plan["installments"]
-        installment_amount = float(plan["installment_amount"])
-    except (TypeError, ValueError):
-        raise RuntimeError(
-            "AI returned invalid payment amounts."
+        total = Decimal(str(plan["total_amount"])).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
         )
+        count = plan["installments"]
+    except (InvalidOperation, ValueError, TypeError):
+        raise RuntimeError("AI returned invalid payment amounts.")
 
     if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-        raise RuntimeError(
-            "Installments must be a positive whole number."
-        )
+        raise RuntimeError("Installments must be a positive whole number.")
 
-    if total <= 0 or installment_amount <= 0:
-        raise RuntimeError(
-            "Payment amounts must be greater than zero."
-        )
+    if total <= 0:
+        raise RuntimeError("Total amount must be greater than zero.")
 
     currency = plan["currency"]
 
@@ -165,17 +140,48 @@ def create_payment_plan(message: str):
         or len(currency) != 3
         or not currency.isalpha()
     ):
+        raise RuntimeError("AI returned an invalid currency code.")
+
+    # Work in cents to avoid floating-point rounding errors.
+    total_cents = int(total * 100)
+
+    if count > total_cents:
         raise RuntimeError(
-            "AI returned an invalid currency code."
+            "Too many installments for the requested amount."
         )
 
-    # Do not trust the AI for arithmetic.
-    # Recalculate the displayed installment amount server-side.
-    plan["total_amount"] = round(total, 2)
-    plan["installment_amount"] = round(total / count, 2)
+    base_cents, remainder = divmod(total_cents, count)
+
+    schedule = []
+
+    for index in range(count):
+        cents = base_cents
+
+        # Add remaining cents to the final installments.
+        if index >= count - remainder:
+            cents += 1
+
+        schedule.append({
+            "number": index + 1,
+            "amount": f"{cents // 100}.{cents % 100:02d}"
+        })
+
+    plan["total_amount"] = f"{total_cents // 100}.{total_cents % 100:02d}"
+    plan["installments"] = count
+    plan["installment_schedule"] = schedule
+
+    # Keep compatibility with the existing frontend.
+    plan["installment_amount"] = schedule[0]["amount"]
     plan["currency"] = currency.upper()
 
     return plan
+
+
+
+    
+    
+
+    
 
 
 
